@@ -1,18 +1,7 @@
-from sklearn import datasets
 from sklearn.cluster import KMeans
 import numpy as np
 from scipy.stats import multivariate_normal
-
-def get_train_test_data(n=500, seed=11121):
-    # Generate all data
-    data_all = datasets.make_moons(n, random_state=seed)[0]
-
-    # Split into train/test data
-    train_n = np.floor(0.8 * n).astype(int)
-    train_data = data_all[:train_n]
-    test_data = data_all[train_n:]
-
-    return train_data, test_data
+from utils import get_train_test_data
 
 def random_initialisation(train_data, C, cov_normalisation=0.2):
     # Weights are uniform
