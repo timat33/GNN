@@ -3,7 +3,7 @@ import numpy as np
 
 def squared_exponential_kernel(x1, x2, h=1.0):
     """Squared Exponential Kernel (RBF Kernel)"""
-    return np.exp(-np.sum((x1 - x2) ** 2) / (h ** 2))
+    return np.exp(-np.sum((x1 - x2) ** 2) / h)
 
 
 def inverse_multiquadratic_kernel(x1, x2, h=1.0):
