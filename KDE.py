@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from sklearn import datasets
 import math
 
-# test
+# test test
 def get_train_test_data(n=100, seed=11121):
 
     data_all = datasets.make_moons(n, random_state=seed)[0]
