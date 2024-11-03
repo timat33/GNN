@@ -2,8 +2,11 @@ from sklearn.cluster import KMeans
 import numpy as np
 from scipy.stats import multivariate_normal
 from utils import get_train_test_data
+from MMD import calculate_mmd
 
-def random_initialisation(train_data, C, cov_normalisation=0.2):
+def random_initialisation(train_data, C, cov_normalisation=0.2, seed=None):
+    if seed:
+        np.random.seed(seed)
     # Weights are uniform
     weights_array = np.ones(C) * 1 / C
 
@@ -109,8 +112,6 @@ def sample_from_gmm(weights_array, means_array, covariances_array, n, seed):
 
     return samples
 
-
-
 if __name__ == '__main__':
     # Fix data parameters
     n = 50
@@ -130,6 +131,11 @@ if __name__ == '__main__':
         train_gmm(train_data, C, num_iter, init_method, init_covariance_normalisation, seed)
 
     learned_samples = sample_from_gmm(weights_array, means_array, covariances_array, n, seed)
+
+    # Caclulate MMD
+    mmd = calculate_mmd(test_data, learned_samples)
+
+    print(mmd)
 
     
 

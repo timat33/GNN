@@ -3,12 +3,12 @@ import numpy as np
 
 def squared_exponential_kernel(x1, x2, h=1.0):
     """Squared Exponential Kernel (RBF Kernel)"""
-    return np.exp(-np.sum((x1 - x2) ** 2) / (2 * h ** 2))
+    return np.exp(-np.sum((x1 - x2) ** 2) / h)
 
 
 def inverse_multiquadratic_kernel(x1, x2, h=1.0):
     """Inverse Multiquadratic Kernel"""
-    return 1 / np.sqrt(np.sum((x1 - x2) ** 2) / h + 1)
+    return 1 / (np.sum((x1 - x2) ** 2) / h + 1)
 
 
 def calculate_mmd(X_true, X_pred, bandwidths=[1.0]):
@@ -32,7 +32,7 @@ def calculate_mmd(X_true, X_pred, bandwidths=[1.0]):
     }
 
     # Dictionary to store MMD results for each kernel
-    mmd_results = {}
+    mmd_squared_results = {}
 
     # Loop over each kernel
     for kernel_name, kernel_fn in kernels.items():
@@ -45,21 +45,28 @@ def calculate_mmd(X_true, X_pred, bandwidths=[1.0]):
         for h in bandwidths:
             for i in range(N):
                 for j in range(N):
+                    if i == j:
+                        continue
                     xx_sum += kernel_fn(X_true[i], X_true[j], h)
             for i in range(M):
                 for j in range(M):
+                    if i == j: # skip case with equal indices
+                        continue
                     yy_sum += kernel_fn(X_pred[i], X_pred[j], h)
             for i in range(N):
                 for j in range(M):
                     xy_sum += kernel_fn(X_true[i], X_pred[j], h)
 
             # Normalize sums by sample size
-            xx_sum /= (N * N)
-            yy_sum /= (M * M)
+            xx_sum /= (N * (N-1))
+            yy_sum /= (M * (M-1))
             xy_sum /= (N * M)
 
         # Calculate MMD for the current kernel
-        mmd_value = xx_sum + yy_sum - 2 * xy_sum
-        mmd_results[kernel_name] = mmd_value
+        mmd_squared_value = xx_sum + yy_sum - 2 * xy_sum
+        mmd_squared_results[kernel_name] = mmd_squared_value
 
-    return mmd_results
+    # Find max squared value and take square root to return
+    mmd = max(mmd_squared_results.values()) ** 0.5
+
+    return mmd
