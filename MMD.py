@@ -1,14 +1,23 @@
 import numpy as np
 
 
-def squared_exponential_kernel(x1, x2, h=1.0):
+# def squared_exponential_kernel(x1, x2, h=1.0): # From the lecturer, causing issues
+#     """Squared Exponential Kernel (RBF Kernel)"""
+#     return np.exp(-np.sum((x1 - x2) ** 2) / h)
+
+
+# def inverse_multiquadratic_kernel(x1, x2, h=1.0):
+#     """Inverse Multiquadratic Kernel"""
+#     return 1 / (np.sum((x1 - x2) ** 2) / h + 1)
+
+def squared_exponential_kernel(x1, x2, h=1.0): # From online sources
     """Squared Exponential Kernel (RBF Kernel)"""
-    return np.exp(-np.sum((x1 - x2) ** 2) / h)
+    return np.exp(-np.sum((x1 - x2) ** 2) / (2 * h ** 2))
 
 
 def inverse_multiquadratic_kernel(x1, x2, h=1.0):
     """Inverse Multiquadratic Kernel"""
-    return 1 / (np.sum((x1 - x2) ** 2) / h + 1)
+    return 1 / np.sqrt(np.sum((x1 - x2) ** 2) + h)
 
 
 def calculate_mmd(X_true, X_pred, bandwidths=[1.0]):
