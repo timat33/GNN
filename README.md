@@ -11,6 +11,10 @@ My next goals are to:
 - do the visualization for the hyperparameters and choose good and bad examples
 
 
+Notes and Thoughts:
+- Bin sizes: what kinda sizes actually make sense? do we need to consider special cases depending on the sample size and maybe throw exceptions?
+- adjusted         x_grid, y_grid = np.meshgrid(np.linspace(x_min, x_max, 50), np.linspace(y_min, y_max, 50)) in KDE because I dont have the time for 100 
+
 Update 01/11 - 4pm - Kathi:
 
 - I added a folder for MMD including the main MMD file, a unit test (ran successfully) and an init file so we can call it in our other files
