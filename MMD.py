@@ -76,6 +76,7 @@ def calculate_mmd(X_true, X_pred, bandwidths=[1.0]):
         mmd_squared_results[kernel_name] = mmd_squared_value
 
     # Find max squared value and take square root to return
-    #mmd = max(mmd_squared_results.values()) ** 0.5
     mmd_squared = max(mmd_squared_results.values())
-    return mmd_squared
+    return mmd_squared_results, mmd_squared
+
+
