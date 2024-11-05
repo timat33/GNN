@@ -1,3 +1,16 @@
+Update 05/11 - 10am - Kathi:
+So far I have:
+- created generating Dataset function
+- plotting original data 
+- implemented all models (without MMD so far)
+
+My next goals are to:
+- implement MMD and plot it against each each other
+- unify plotting to make it look pretty!
+- add a section for comments at the end of the notebook
+- do the visualization for the hyperparameters and choose good and bad examples
+
+
 Update 01/11 - 4pm - Kathi:
 
 - I added a folder for MMD including the main MMD file, a unit test (ran successfully) and an init file so we can call it in our other files
