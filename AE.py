@@ -101,7 +101,7 @@ def train_epoch(model, train_loader, epoch_index, tb_writer, optimiser, loss_fn,
         running_loss += loss.item()
         if i % 100 == 99:
             last_loss = running_loss / 100 # loss per batch
-            print(f'  batch {i+1} training MSE: {last_loss}')
+            print(f'  batch {i+1} training loss: {last_loss}')
             total_batches = epoch_index * len(train_loader) + i + 1
             tb_writer.add_scalar('Loss/train', last_loss, total_batches)
             running_loss = 0.
