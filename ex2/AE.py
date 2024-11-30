@@ -4,8 +4,6 @@ from sklearn import datasets
 import numpy as np
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-import datetime
-
 
 def get_dimensions(layers:int, input_size:int, hidden_size:int, bottleneck_size:int) -> np.array:
     """
