@@ -1,3 +1,4 @@
+from itertools import product
 import torch
 import torch.nn as nn
 from sklearn import datasets
@@ -8,6 +9,8 @@ import numpy as np
 from sklearn.mixture import GaussianMixture
 from sklearn.datasets import load_digits
 from argparse import Namespace
+import pandas as pd
+import os
 
 # Data functions
 def get_standardised_moons(n, noise = 0.1, device = 'cpu'):
@@ -26,7 +29,8 @@ def get_standardised_gmm(n_samples, radius, device):
     vertices = np.array([np.cos(thetas), np.sin(thetas)]).reshape(6,2)
 
     covariance_matrix = np.eye(2)*radius/10
-    covs = np.tile(covariance_matrix, (1,1,6))
+    covs = np.array([covariance_matrix for _ in range(6)])  # Shape: (6,2,2)
+    
     
     # Create GMM
     gmm = GaussianMixture(
@@ -179,7 +183,8 @@ class RealNVP(nn.Module):
         self.rotation_matrices = [
             torch.tensor(get_rand_rotation_mat(self.data_dim), 
                          requires_grad = False,
-                         dtype = torch.float32) 
+                         dtype = torch.float32,
+                         device = self.device) 
             for _ in range(self.blocks-1)
         ]
 
@@ -348,7 +353,7 @@ def get_val_loss(model, val_loader, loss_fn):
 
     return val_loss
 
-def train_model(model, n_epoch, loss_fn, x_train, lr, batch_size = 4, best_model_path = 'best_model.pt', seed = 11121, device = 'cpu'):
+def train_model(model, n_epoch, loss_fn, x_train, lr, model_path, batch_size = 4, seed = 11121, device = 'cpu'):
     # Get extra necessary objects
     optimiser = torch.optim.Adam(params=model.parameters(), lr=lr)
 
@@ -367,15 +372,18 @@ def train_model(model, n_epoch, loss_fn, x_train, lr, batch_size = 4, best_model
     history = {'train_loss': [], 'val_loss': []}
 
     for epoch_index in range(n_epoch):
-        print('EPOCH {}:'.format(epoch_index + 1))
 
         model.train()
         # Train and get validation loss
         train_loss = train_epoch(model, train_loader, optimiser, loss_fn)
-        print(f'  training batch loss: {train_loss}')
 
         val_loss = get_val_loss(model, val_loader, loss_fn)
-        print(f'  validation batch loss: {val_loss}')
+
+        # print outputs
+        if epoch_index % 10 == 0:
+            print('EPOCH {}:'.format(epoch_index + 1))
+            print(f'  training batch loss: {train_loss}')
+            print(f'  validation batch loss: {val_loss}')
 
         # Store losses
         history['train_loss'].append(train_loss)
@@ -392,8 +400,8 @@ def train_model(model, n_epoch, loss_fn, x_train, lr, batch_size = 4, best_model
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimiser.state_dict(),
                 'loss': best_val_loss,
-            }, best_model_path.replace('.pt', 
-                                       f'_ntrain{len(x_train)}_nepoch{n_epoch}_lr{str(lr).replace('.',',')}.pt'))
+                'history': history
+            }, model_path)
 
         else:
             early_stop_counter +=1
@@ -403,7 +411,7 @@ def train_model(model, n_epoch, loss_fn, x_train, lr, batch_size = 4, best_model
 
     return history
 
-def init_and_train(hparams, fixed_params, best_model_path, dataset):
+def init_and_train(hparams, fixed_params, model_path, dataset):
     # Get data
     if dataset == 'moons':
         x_standardised = get_standardised_moons(hparams.n_train, fixed_params.noise, fixed_params.device)
@@ -421,35 +429,51 @@ def init_and_train(hparams, fixed_params, best_model_path, dataset):
 
     # Train model
     loss_fn = NLLLoss(inn.coupling_layers, fixed_params.input_size)
-    train_model(inn, hparams.n_epoch, loss_fn, x_standardised, hparams.lr, best_model_path=best_model_path, device = fixed_params.device, batch_size=fixed_params.batch_size)
+    history = train_model(inn, hparams.n_epoch, loss_fn, x_standardised, hparams.lr, model_path=model_path, device = fixed_params.device, batch_size=fixed_params.batch_size)
 
-def init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, dataset):
+    return history
+
+def init_and_train_from_grid(hparams_grid, fixed_params, model_path_template, dataset):
     '''
     Take grid of hyperparams and train models for all combinations
     '''
-    # Copy 
+    # Copy hyperparams
     hparams = Namespace(**vars(hparams_grid))
-    for input_size in hparams.input_size:
-        for hidden_size in hparams.hidden_size:
-            for blocks in hparams.blocks:
-                hparams.input_size = input_size
-                hparams.hidden_size = hidden_size
-                hparams.blocks = blocks
+    results = pd.DataFrame(columns=['hidden_size', 'blocks', 'n_train', 'lr', 'min_val_loss'])
+    
+    for hidden_size, blocks, n_train, lr in product(hparams_grid.hidden_size, hparams_grid.blocks, hparams_grid.n_train, hparams_grid.lr):
+    # Overwrite list with fixed value
+        hparams.n_train = n_train
+        hparams.hidden_size = hidden_size
+        hparams.blocks = blocks
+        hparams.lr = lr
 
-                init_and_train(hparams, fixed_params, best_model_path, dataset)
+        model_path = model_path_template.replace('.pt', 
+                                       f'_ntrain{n_train}_hiddensize{hidden_size}_blocks{blocks}_lr{str(lr).replace('.',',')}.pt')
+        print(f'Training model {model_path}')
+
+        history = init_and_train(hparams, fixed_params, model_path, dataset)
+
+        # Get minimum validation loss
+        min_val_loss = min(history['val_loss'])
+        
+        # Add row to results DataFrame
+        results.loc[len(results)] = [int(hidden_size), int(blocks), int(n_train), lr, min_val_loss]
+    
+    return results
 
 # Hparams
 hparams_grid = Namespace()
 fixed_params = Namespace()
 
 ## Architecture hparams
-hparams_grid.hidden_size = [4,8] 
-hparams_grid.blocks = [3,5,7]
+hparams_grid.hidden_size = [8,12] 
+hparams_grid.blocks = [5,7]
 
 ## Training hparams
-hparams_grid.n_train = [500,1000,2000]
-hparams_grid.lr = [0.001,0.01]
-hparams_grid.n_epoch = 100
+hparams_grid.n_train = [1000,2000]
+hparams_grid.lr = [0.02,0.01]
+hparams_grid.n_epoch = 40
 
 # Fixed params
 fixed_params.input_size = 2 
@@ -459,8 +483,17 @@ fixed_params.seed = 11121
 fixed_params.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Apply to moons dataset
-best_model_path='moons_INN.pt'
-init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
+os.makedirs('models/moons', exist_ok=True)
+best_model_path='models/moons/moons_INN.pt'
+min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
+
+min_losses.to_csv('min_losses_moons.csv', index=False)
 
 # Apply to gmm dataset
-init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm')
+os.makedirs('models/gmms', exist_ok=True)
+best_model_path='models/gmms/gmms_INN.pt'
+min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm')
+
+# Save results
+min_losses.to_csv('min_losses_gmm.csv', index=False)
+
