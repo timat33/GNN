@@ -26,26 +26,24 @@ def get_standardised_moons(n, noise = 0.1, device = 'cpu'):
 def get_standardised_gmm(n_samples, radius, device = 'cpu'):
     # Get vertices of regular hexagon centered at origin with radius radius
     thetas = 2*np.pi/6 * np.arange(6)
-    vertices = np.array([np.cos(thetas), np.sin(thetas)]).reshape(6,2)
-
-    covariance_matrix = np.eye(2)*radius/10
-    covs = np.array([covariance_matrix for _ in range(6)])  # Shape: (6,2,2)
+    vertices = np.stack([
+        radius * np.cos(thetas),
+        radius * np.sin(thetas)
+    ]).T  # Better stacking for 2D points
     
+    # Smaller covariance for tighter clusters
+    covariance_matrix = np.eye(2) * (radius/10)**2  # Square for proper variance scale
+    covs = np.array([covariance_matrix for _ in range(6)])
+    precisions = np.linalg.inv(covs)
     
-    # Create GMM
-    gmm = GaussianMixture(
-        n_components=6,
-        covariance_type='full',
-        weights_init=np.ones(6)/6  # equal weights
-    )
-    
-    # Set parameters manually
+    # Setup GMM
+    gmm = GaussianMixture(n_components=6, covariance_type='full')
     gmm.means_ = vertices
     gmm.covariances_ = covs
     gmm.weights_ = np.ones(6)/6
-    gmm.precisions_cholesky_ = np.linalg.cholesky(
-        np.linalg.inv(covs)
-    ).transpose(0, 2, 1)
+    gmm.precisions_cholesky_ = np.linalg.cholesky(precisions).transpose(0, 2, 1)
+    gmm.converged_ = True
+    gmm.n_iter_ = 0
     
     # Generate samples
     x, _ = gmm.sample(n_samples)
@@ -485,15 +483,15 @@ if __name__ == '__main__':
     fixed_params.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Apply to moons dataset
-    os.makedirs('ex3/models/moons', exist_ok=True)
-    best_model_path=None #'models/moons/moons_INN.pt' # For safety
-    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
+    # os.makedirs('ex3/models/moons', exist_ok=True)
+    # best_model_path=None #'models/moons/moons_INN.pt' # For safety
+    # min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
 
-    min_losses.to_csv('min_losses_moons.csv', index=False)
+    # min_losses.to_csv('min_losses_moons.csv', index=False)
 
     # Apply to gmm dataset
     os.makedirs('ex3/models/gmms', exist_ok=True)
-    best_model_path='models/gmms/gmms_INN.pt'
+    best_model_path='ex3/models/gmms/gmms_INN.pt'
     min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm')
 
     # Save results

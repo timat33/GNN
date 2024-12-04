@@ -44,26 +44,24 @@ def relabel_to_binary(labels: torch.Tensor, positive_labels: List = [0,2]) -> to
 def get_standardised_gmm(n_samples, radius, conditional, device = 'cpu'):
     # Get vertices of regular hexagon centered at origin with radius radius
     thetas = 2*np.pi/6 * np.arange(6)
-    vertices = np.array([radius*np.cos(thetas), radius*np.sin(thetas)]).reshape(6,2)
-
-    covariance_matrix = np.eye(2)*radius/10
-    covs = np.array([covariance_matrix for _ in range(6)])  # Shape: (6,2,2)
+    vertices = np.stack([
+        radius * np.cos(thetas),
+        radius * np.sin(thetas)
+    ]).T  # Better stacking for 2D points
     
+    # Smaller covariance for tighter clusters
+    covariance_matrix = np.eye(2) * (radius/10)**2  # Square for proper variance scale
+    covs = np.array([covariance_matrix for _ in range(6)])
+    precisions = np.linalg.inv(covs)
     
-    # Create GMM
-    gmm = GaussianMixture(
-        n_components=6,
-        covariance_type='full',
-        weights_init=np.ones(6)/6  # equal weights
-    )
-    
-    # Set parameters manually
+    # Setup GMM
+    gmm = GaussianMixture(n_components=6, covariance_type='full')
     gmm.means_ = vertices
     gmm.covariances_ = covs
     gmm.weights_ = np.ones(6)/6
-    gmm.precisions_cholesky_ = np.linalg.cholesky(
-        np.linalg.inv(covs)
-    ).transpose(0, 2, 1)
+    gmm.precisions_cholesky_ = np.linalg.cholesky(precisions).transpose(0, 2, 1)
+    gmm.converged_ = True
+    gmm.n_iter_ = 0
     
     # Generate samples
     x, labels = gmm.sample(n_samples)
@@ -270,6 +268,8 @@ class RealNVP(nn.Module):
                                       x_hat)
 
             # pass through coupling layer
+            if self.condition_size !=0 and condition is None:
+                raise ValueError('Model is conditional but no conditions provided')
             x_hat = coupling_layer.reverse(x_hat, condition)
 
         return x_hat
@@ -307,7 +307,6 @@ class RealNVP(nn.Module):
     
     @torch.no_grad()
     def get_reconstructions(self, z, condition = None, batch_size = 32,):
-        
         if condition is None:
             reverse_loader = DataLoader(z, batch_size = batch_size)
 
@@ -340,6 +339,9 @@ class RealNVP(nn.Module):
         """
         if seed:
             torch.manual_seed(seed)
+
+        if conditions is None and self.condition_size != 0:
+            conditions = range(self.condition_size)
 
         # If no conditions, just generate sample. Else, generate sample conditioned on conditions
         if conditions is None:
@@ -417,10 +419,10 @@ def train_epoch(model: RealNVP, train_loader, optimiser, loss_fn: NLLLoss, condi
         optimiser.zero_grad()
 
         # Make predictions
-        intermediates, x_hat = model(x_batch, label_batch)
+        intermediates, z_hat = model(x_batch, label_batch)
 
         # Get loss, metrics, and gradients
-        loss = loss_fn(intermediates, x_hat, label_batch)
+        loss = loss_fn(intermediates, z_hat, label_batch)
         loss.backward()
 
         # Update
@@ -543,7 +545,7 @@ def train_model(model, n_epoch, loss_fn, x_train, labels, conditional, lr, model
 
     return history
 
-def init_and_train(hparams, fixed_params, model_path, dataset: bool):
+def init_and_train(hparams, fixed_params, model_path, dataset: str):
     # Get data
     if dataset == 'moons':
         x_standardised, labels = get_standardised_moons(hparams.n_train, fixed_params.conditional, fixed_params.noise, fixed_params.device)
@@ -627,12 +629,12 @@ if __name__ == '__main__':
     fixed_params.condition_size = 0
     
 
-    # Apply to moons dataset
-    os.makedirs('ex3/models/moons', exist_ok=True)
-    best_model_path = 'ex3/models/moons/moons_INN.pt' # For safety
-    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
+    # # Apply to moons dataset
+    # os.makedirs('ex3/models/moons', exist_ok=True)
+    # best_model_path = 'ex3/models/moons/moons_INN.pt' # For safety
+    # min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
 
-    min_losses.to_csv('ex3/min_losses_moons.csv', index=False)
+    # min_losses.to_csv('ex3/min_losses_moons.csv', index=False)
 
     # Apply to gmm dataset
     os.makedirs('ex3/models/gmms', exist_ok=True)
@@ -642,7 +644,7 @@ if __name__ == '__main__':
     # Save results
     min_losses.to_csv('ex3/min_losses_gmm.csv', index=False)
 
-    # Condtional stuff
+    # Conditional stuff
 
     # Hparams
     hparams_grid = Namespace()
@@ -654,7 +656,7 @@ if __name__ == '__main__':
 
     ## Training hparams
     hparams_grid.n_train = [1000, 2000]
-    hparams_grid.lr = [0.01,0.02]
+    hparams_grid.lr = [0.01, 0.02]
     hparams_grid.n_epoch = 200
 
     # Fixed params
@@ -669,11 +671,11 @@ if __name__ == '__main__':
     fixed_params.radius = 1
 
     # Apply to moons dataset
-    os.makedirs('ex3/models/moons_conditional', exist_ok=True)
-    best_model_path='ex3/models/moons_conditional/moons_INN.pt'
-    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
+    # os.makedirs('ex3/models/moons_conditional', exist_ok=True)
+    # best_model_path='ex3/models/moons_conditional/moons_INN.pt'
+    # min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
 
-    min_losses.to_csv('ex3/min_losses_conditional_moons.csv', index=False)
+    # min_losses.to_csv('ex3/min_losses_conditional_moons.csv', index=False)
 
     # Apply to gmm dataset with all labels
     os.makedirs('ex3/models/gmms_conditional', exist_ok=True)
