@@ -275,38 +275,65 @@ class RealNVP(nn.Module):
         return x_hat
 
     # Inference functions
-    def get_codes(self, x, batch_size):
+    @torch.no_grad()
+    def get_codes(self, x, conditions=None, batch_size=32):
         '''
         Pass a test tensor of data points through the mode
         '''
-        test_loader = DataLoader(x, batch_size = batch_size)
-
         outputs = []
-        with torch.no_grad():
-            for x_batch in test_loader:
+        if conditions is None:
+            test_loader = DataLoader(x, batch_size = batch_size)
+
+
+            for x_batch, in test_loader:
                 x_batch = x_batch.to(self.device)
                 _, output = self.forward(x_batch) # Discard intermediates
+                outputs.append(output)
+        else:
+            test_dataset = TensorDataset(x, conditions)
+            test_loader = DataLoader(test_dataset, batch_size = batch_size)
+
+
+            for x_batch, labels_batch in test_loader:
+                x_batch = x_batch.to(self.device)
+                labels_batch = labels_batch.to(self.device)
+
+                _, output = self.forward(x_batch, labels_batch) # Discard intermediates
                 outputs.append(output)
 
         z = torch.cat(outputs, dim = 0) 
 
         return z
     
-    def get_reconstructions(self, z, batch_size):
-        reverse_loader = DataLoader(z, batch_size = batch_size)
+    @torch.no_grad()
+    def get_reconstructions(self, z, condition = None, batch_size = 32,):
+        
+        if condition is None:
+            reverse_loader = DataLoader(z, batch_size = batch_size)
 
-        outputs = []
-        with torch.no_grad():
+            outputs = []
             for x_batch in reverse_loader:
                 x_batch = x_batch.to(self.device)
-                output = self.reverse(x_batch)
+                output = self.reverse(x_batch, condition)
+                outputs.append(output)
+
+        else:
+            reverse_dataset = TensorDataset(z, condition)
+            reverse_loader = DataLoader(reverse_dataset, batch_size = batch_size)
+
+            outputs = []
+            for x_batch, condition_batch in reverse_loader:
+                x_batch = x_batch.to(self.device)
+                condition_batch = condition_batch.to(self.device)
+
+                output = self.reverse(x_batch, condition_batch)
                 outputs.append(output)
 
         x_reconstructed = torch.cat(outputs, dim = 0)
 
         return x_reconstructed
     
-    def sample(self, n, batch_size = 32, seed = 11121):
+    def sample(self, n, batch_size = 32, conditions = None, seed = 11121):
         """
         Sample from data distribution by generating normal samples and passing through
         the model in reverse.
@@ -314,10 +341,33 @@ class RealNVP(nn.Module):
         if seed:
             torch.manual_seed(seed)
 
-        codes = torch.randn(n,self.data_dim)
-        reconstructions = self.get_reconstructions(codes, batch_size)
+        # If no conditions, just generate sample. Else, generate sample conditioned on conditions
+        if conditions is None:
+            codes = torch.randn(n,self.data_dim)
+            reconstructions = self.get_reconstructions(codes, batch_size = batch_size)
+            labels = None
+        else: 
+            if not isinstance(conditions, torch.Tensor):
+                conditions = torch.tensor(conditions).to(self.device)
+            
+            # Create n samples for each condition then concatenate
+            reconstructions = []
+            labels = []
+            
+            for condition in conditions:
+                codes = torch.randn(n,self.data_dim)
+                contitional_labels = torch.ones(n)*condition # Each sample has the same condition
+                conditional_reconstructions = self.get_reconstructions(codes, contitional_labels, batch_size)
+                
+                
+                reconstructions.append(conditional_reconstructions)
+                labels.append(contitional_labels)
 
-        return reconstructions
+            reconstructions = torch.cat(reconstructions, dim = 0)
+            labels = torch.cat(labels, dim = 0)
+
+
+        return reconstructions, labels
 
 # Functions for training
 class NLLLoss(nn.Module):
@@ -575,16 +625,16 @@ if __name__ == '__main__':
 
     # Apply to moons dataset
     os.makedirs('models/moons_conditional', exist_ok=True)
-    best_model_path='models/moons_conditional/moons_INN.pt'
+    best_model_path='ex3/models/moons_conditional/moons_INN.pt'
     min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons', conditional = True)
 
     min_losses.to_csv('min_losses_conditional_moons.csv', index=False)
 
     # Apply to gmm dataset
     os.makedirs('models/gmms_conditional', exist_ok=True)
-    best_model_path='models/gmms_conditional/gmms_INN.pt'
+    best_model_path='ex3/models/gmms_conditional/gmms_INN.pt'
     min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm', conditional = True)
 
     # Save results
-    min_losses.to_csv('min_losses_conditional_gmm.csv', index=False)
+    min_losses.to_csv('ex3/min_losses_conditional_gmm.csv', index=False)
 
