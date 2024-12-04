@@ -44,7 +44,7 @@ def relabel_to_binary(labels: torch.Tensor, positive_labels: List = [0,2]) -> to
 def get_standardised_gmm(n_samples, radius, conditional, device = 'cpu'):
     # Get vertices of regular hexagon centered at origin with radius radius
     thetas = 2*np.pi/6 * np.arange(6)
-    vertices = np.array([np.cos(thetas), np.sin(thetas)]).reshape(6,2)
+    vertices = np.array([radius*np.cos(thetas), radius*np.sin(thetas)]).reshape(6,2)
 
     covariance_matrix = np.eye(2)*radius/10
     covs = np.array([covariance_matrix for _ in range(6)])  # Shape: (6,2,2)
@@ -543,15 +543,16 @@ def train_model(model, n_epoch, loss_fn, x_train, labels, conditional, lr, model
 
     return history
 
-def init_and_train(hparams, fixed_params, model_path, dataset, conditional: bool):
+def init_and_train(hparams, fixed_params, model_path, dataset: bool):
     # Get data
     if dataset == 'moons':
         x_standardised, labels = get_standardised_moons(hparams.n_train, fixed_params.conditional, fixed_params.noise, fixed_params.device)
     elif dataset == 'gmm':
-        x_standardised, labels = get_standardised_gmm(hparams.n_train, fixed_params.conditional, fixed_params.noise, fixed_params.device)
-        labels = relabel_to_binary(labels, positive_labels=fixed_params.positive_labels)
+        x_standardised, labels = get_standardised_gmm(hparams.n_train, fixed_params.radius, fixed_params.conditional, fixed_params.device)
+        if fixed_params.conditional and fixed_params.positive_labels is not None:
+            labels = relabel_to_binary(labels, positive_labels=fixed_params.positive_labels)
 
-    if not conditional:
+    if not fixed_params.conditional:
         labels = None
 
     # Get model
@@ -570,7 +571,7 @@ def init_and_train(hparams, fixed_params, model_path, dataset, conditional: bool
 
     return history
 
-def init_and_train_from_grid(hparams_grid, fixed_params, model_path_template, dataset, conditional):
+def init_and_train_from_grid(hparams_grid, fixed_params, model_path_template, dataset):
     '''
     Take grid of hyperparams and train models for all combinations
     '''
@@ -589,7 +590,7 @@ def init_and_train_from_grid(hparams_grid, fixed_params, model_path_template, da
                                        f'_ntrain{n_train}_hiddensize{hidden_size}_blocks{blocks}_lr{str(lr).replace('.',',')}.pt')
         print(f'Training model {model_path}')
 
-        history = init_and_train(hparams, fixed_params, model_path, dataset, conditional)
+        history = init_and_train(hparams, fixed_params, model_path, dataset)
 
         # Get minimum validation loss
         min_val_loss = min(history['val_loss'])
@@ -600,6 +601,7 @@ def init_and_train_from_grid(hparams_grid, fixed_params, model_path_template, da
     return results
 
 if __name__ == '__main__':
+    # Unconditional stuff
     # Hparams
     hparams_grid = Namespace()
     fixed_params = Namespace()
@@ -609,9 +611,51 @@ if __name__ == '__main__':
     hparams_grid.blocks = [12,18]
 
     ## Training hparams
-    hparams_grid.n_train = [1000,2000]
+    hparams_grid.n_train = [50, 100]
     hparams_grid.lr = [0.01,0.02]
-    hparams_grid.n_epoch = 200
+    hparams_grid.n_epoch = 5
+
+    # Fixed params
+    fixed_params.input_size = 2 
+    fixed_params.batch_size = 16
+    fixed_params.noise = 0.1
+    fixed_params.seed = 11121
+    fixed_params.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    fixed_params.conditional = False
+    fixed_params.positive_labels = None
+    fixed_params.radius = 1
+    fixed_params.condition_size = 0
+    
+
+    # Apply to moons dataset
+    os.makedirs('ex3/models/moons', exist_ok=True)
+    best_model_path = 'ex3/models/moons/moons_INN.pt' # For safety
+    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
+
+    min_losses.to_csv('min_losses_moons.csv', index=False)
+
+    # Apply to gmm dataset
+    os.makedirs('ex3/models/gmms', exist_ok=True)
+    best_model_path='ex3/models/gmms/gmms_INN.pt'
+    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm')
+
+    # Save results
+    min_losses.to_csv('ex3/min_losses_gmm.csv', index=False)
+
+    # Condtional stuff
+
+    # Hparams
+    hparams_grid = Namespace()
+    fixed_params = Namespace()
+
+    ## Architecture hparams
+    hparams_grid.hidden_size = [16,24] 
+    hparams_grid.blocks = [12,18]
+
+    ## Training hparams
+    hparams_grid.n_train = [50, 100]
+    hparams_grid.lr = [0.01,0.02]
+    hparams_grid.n_epoch = 5
 
     # Fixed params
     fixed_params.input_size = 2 
@@ -621,20 +665,31 @@ if __name__ == '__main__':
     fixed_params.noise = 0.1
     fixed_params.seed = 11121
     fixed_params.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    fixed_params.positive_labels = [0,2] # For gmm dataset
+    fixed_params.positive_labels = None # For gmm dataset
+    fixed_params.radius = 1
 
     # Apply to moons dataset
-    os.makedirs('models/moons_conditional', exist_ok=True)
+    os.makedirs('ex3/models/moons_conditional', exist_ok=True)
     best_model_path='ex3/models/moons_conditional/moons_INN.pt'
-    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons', conditional = True)
+    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
 
     min_losses.to_csv('min_losses_conditional_moons.csv', index=False)
 
-    # Apply to gmm dataset
-    os.makedirs('models/gmms_conditional', exist_ok=True)
+    # Apply to gmm dataset with all labels
+    os.makedirs('ex3/models/gmms_conditional', exist_ok=True)
     best_model_path='ex3/models/gmms_conditional/gmms_INN.pt'
-    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm', conditional = True)
+    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm')
 
     # Save results
     min_losses.to_csv('ex3/min_losses_conditional_gmm.csv', index=False)
+
+    # Rerun with only gmm with binary labels
+    fixed_params.positive_labels = [0,2] # For gmm dataset]
+
+    os.makedirs('ex3/models/gmms_conditional_bin', exist_ok=True)
+    best_model_path='ex3/models/gmms_conditional_bin/gmms_INN.pt'
+    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm')
+
+    # Save results
+    min_losses.to_csv('ex3/min_losses_conditional_bin_gmm.csv', index=False)
 
