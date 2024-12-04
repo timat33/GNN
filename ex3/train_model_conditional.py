@@ -611,9 +611,9 @@ if __name__ == '__main__':
     hparams_grid.blocks = [12,18]
 
     ## Training hparams
-    hparams_grid.n_train = [50, 100]
+    hparams_grid.n_train = [1000, 2000]
     hparams_grid.lr = [0.01,0.02]
-    hparams_grid.n_epoch = 5
+    hparams_grid.n_epoch = 200
 
     # Fixed params
     fixed_params.input_size = 2 
@@ -632,7 +632,7 @@ if __name__ == '__main__':
     best_model_path = 'ex3/models/moons/moons_INN.pt' # For safety
     min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
 
-    min_losses.to_csv('min_losses_moons.csv', index=False)
+    min_losses.to_csv('ex3/min_losses_moons.csv', index=False)
 
     # Apply to gmm dataset
     os.makedirs('ex3/models/gmms', exist_ok=True)
@@ -653,9 +653,9 @@ if __name__ == '__main__':
     hparams_grid.blocks = [12,18]
 
     ## Training hparams
-    hparams_grid.n_train = [50, 100]
+    hparams_grid.n_train = [1000, 2000]
     hparams_grid.lr = [0.01,0.02]
-    hparams_grid.n_epoch = 5
+    hparams_grid.n_epoch = 200
 
     # Fixed params
     fixed_params.input_size = 2 
@@ -673,7 +673,7 @@ if __name__ == '__main__':
     best_model_path='ex3/models/moons_conditional/moons_INN.pt'
     min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
 
-    min_losses.to_csv('min_losses_conditional_moons.csv', index=False)
+    min_losses.to_csv('ex3/min_losses_conditional_moons.csv', index=False)
 
     # Apply to gmm dataset with all labels
     os.makedirs('ex3/models/gmms_conditional', exist_ok=True)
