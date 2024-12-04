@@ -23,7 +23,7 @@ def get_standardised_moons(n, noise = 0.1, device = 'cpu'):
 
     return x_standardised
 
-def get_standardised_gmm(n_samples, radius, device):
+def get_standardised_gmm(n_samples, radius, device = 'cpu'):
     # Get vertices of regular hexagon centered at origin with radius radius
     thetas = 2*np.pi/6 * np.arange(6)
     vertices = np.array([np.cos(thetas), np.sin(thetas)]).reshape(6,2)
@@ -143,17 +143,15 @@ class coupling_layer(nn.Module):
         return output
     
     def reverse(self, x):
-        lower_half = x[:, self.D_tilde]
-        upper_half = x[:, self.D_tilde]
         # Obtain scaling and translation coeffs
-        scale_coeff = self.scaling(lower_half) # [B, D-D_tilde]
-        trans_coeff = self.translation(upper_half) # [B, D-D_tilde]
+        trans_coeff = self.translation(x[:, :self.D_tilde]) # all batches; first half
+        scale_coeff = self.scaling(x[:, :self.D_tilde]) 
         
 
         # Skip features up to index D_tilde, apply scaling and translation to the rest element-wise
-        output = torch.cat([lower_half, 
-                            (upper_half - trans_coeff)/scale_coeff],
-                            dim = 1)
+        output = torch.cat([x[:, :self.D_tilde], # Skip connection
+                            (x[:, self.D_tilde:] - trans_coeff)/scale_coeff], # Transformed
+                            dim = 1) # concatenate for each batch element
 
         return output
 
@@ -180,44 +178,49 @@ class RealNVP(nn.Module):
         )
 
         # Get rotation matrices
-        self.rotation_matrices = [
-            torch.tensor(get_rand_rotation_mat(self.data_dim), 
-                         requires_grad = False,
-                         dtype = torch.float32,
-                         device = self.device) 
-            for _ in range(self.blocks-1)
-        ]
+        self.rotation_matrices = nn.ParameterList([
+            nn.Parameter(
+                torch.tensor(
+                    get_rand_rotation_mat(self.data_dim),
+                    dtype=torch.float32,
+                    device=self.device
+                ),
+                requires_grad=False
+            ) for _ in range(self.blocks-1)
+        ])
 
 
     def forward(self, x):
         # Apply coupling layers, interspersing with rotation matrices. Store intermediate output halves
-        output = x
+        z = x
         intermediates = []
         for i, coupling_layer in enumerate(self.coupling_layers):
             # Store intermediate half for loss calculation
-            intermediates.append(output)
+            intermediates.append(z)
 
             # pass through coupling layer
-            output = coupling_layer(output) 
+            z = coupling_layer(z) 
 
             if i!= self.blocks-1:
                 # apply rotation matrix (except for last layer)
-                output = torch.einsum('ij,bj->bi', self.rotation_matrices[i], output)
+                z = torch.einsum('ij,bj->bi', self.rotation_matrices[i], z)
                 
-        return intermediates, output
+        return intermediates, z
 
-    def reverse(self, x):
+    def reverse(self, z):
         # Apply coupling layers in reverse order, interspersing with inverse rotation matrices
-        output = x
-        for i, coupling_layer in enumerate(reversed(self.coupling_layers)):
-            if i!= 0:
+        x_hat = z
+        for i, coupling_layer in reversed(list(enumerate(self.coupling_layers))):
+            if i!= self.blocks-1:
                 # apply inverse rotation matrix (except for first layer)
-                output = torch.einsum('ij,bj->bi', 
+                x_hat = torch.einsum('ij,bj->bi', 
                                       torch.inverse(self.rotation_matrices[i]), 
-                                      output)
+                                      x_hat)
 
             # pass through coupling layer
-            output = coupling_layer.reverse(output)
+            x_hat = coupling_layer.reverse(x_hat)
+
+        return x_hat
 
     # Inference functions
     def get_codes(self, x, batch_size):
@@ -230,12 +233,12 @@ class RealNVP(nn.Module):
         with torch.no_grad():
             for x_batch in test_loader:
                 x_batch = x_batch.to(self.device)
-                output = self.forward(x_batch)
+                _, output = self.forward(x_batch) # Discard intermediates
                 outputs.append(output)
 
-        z_test = torch.cat(outputs, dim = 0) 
+        z = torch.cat(outputs, dim = 0) 
 
-        return z_test
+        return z
     
     def get_reconstructions(self, z, batch_size):
         reverse_loader = DataLoader(z, batch_size = batch_size)
@@ -259,7 +262,7 @@ class RealNVP(nn.Module):
         if seed:
             torch.manual_seed(seed)
 
-        codes = torch.randn(n)
+        codes = torch.randn(n,self.data_dim)
         reconstructions = self.get_reconstructions(codes, batch_size)
 
         return reconstructions
@@ -271,9 +274,9 @@ class NLLLoss(nn.Module):
         self.coupling_layers = coupling_layers
         self.data_dim = data_dim
     
-    def forward(self, intermediates, x_hat):
+    def forward(self, intermediates, z):
         # Component corresponding to transforming the data
-        transformed_component = (x_hat**2).sum(dim=1)/2
+        transformed_component = (z**2).sum(dim=1)/2
         
         # Get log_det_loss component
         log_det_component = 0
@@ -328,7 +331,7 @@ def get_train_val_split(x_train, batch_size, seed = 11121):
     x_train, x_val = x_train[:cut_index], x_train[cut_index:]
 
     train_loader = DataLoader(x_train, batch_size = batch_size)
-    val_loader = DataLoader(x_val, batch_size=4)
+    val_loader = DataLoader(x_val, batch_size=batch_size)
 
     return train_loader, val_loader
 
@@ -362,7 +365,7 @@ def train_model(model, n_epoch, loss_fn, x_train, lr, model_path, batch_size = 4
 
     # Define counter for early stopping to avoid overfitting/computation inefficiency
     early_stop_counter = 0
-    early_stop_counter_max = 5 # Stop if no improvement in val loss after this many epochs
+    early_stop_counter_max = 15 # Stop if no improvement in val loss after this many epochs
 
     # Make a training/validation split: shuffle and then split
     train_loader, val_loader = get_train_val_split(x_train, batch_size, seed)
@@ -393,8 +396,6 @@ def train_model(model, n_epoch, loss_fn, x_train, lr, model_path, batch_size = 4
         if val_loss < best_val_loss:
             early_stop_counter = 0 
             best_val_loss = val_loss
-
-            # Save model state
             torch.save({
                 'epoch': epoch_index,
                 'model_state_dict': model.state_dict(),
@@ -462,38 +463,39 @@ def init_and_train_from_grid(hparams_grid, fixed_params, model_path_template, da
     
     return results
 
-# Hparams
-hparams_grid = Namespace()
-fixed_params = Namespace()
+if __name__ == '__main__':
+    # Hparams
+    hparams_grid = Namespace()
+    fixed_params = Namespace()
 
-## Architecture hparams
-hparams_grid.hidden_size = [8,12] 
-hparams_grid.blocks = [5,7]
+    ## Architecture hparams
+    hparams_grid.hidden_size = [16,24] 
+    hparams_grid.blocks = [12,18]
 
-## Training hparams
-hparams_grid.n_train = [1000,2000]
-hparams_grid.lr = [0.02,0.01]
-hparams_grid.n_epoch = 40
+    ## Training hparams
+    hparams_grid.n_train = [1000,2000]
+    hparams_grid.lr = [0.01,0.02]
+    hparams_grid.n_epoch = 200
 
-# Fixed params
-fixed_params.input_size = 2 
-fixed_params.batch_size = 32
-fixed_params.noise = 0.1
-fixed_params.seed = 11121
-fixed_params.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Fixed params
+    fixed_params.input_size = 2 
+    fixed_params.batch_size = 16
+    fixed_params.noise = 0.1
+    fixed_params.seed = 11121
+    fixed_params.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Apply to moons dataset
-os.makedirs('models/moons', exist_ok=True)
-best_model_path='models/moons/moons_INN.pt'
-min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
+    # Apply to moons dataset
+    os.makedirs('models/moons', exist_ok=True)
+    # best_model_path=None #'models/moons/moons_INN.pt' # For safety
+    # min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
 
-min_losses.to_csv('min_losses_moons.csv', index=False)
+    # min_losses.to_csv('min_losses_moons.csv', index=False)
 
-# Apply to gmm dataset
-os.makedirs('models/gmms', exist_ok=True)
-best_model_path='models/gmms/gmms_INN.pt'
-min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm')
+    # Apply to gmm dataset
+    os.makedirs('models/gmms', exist_ok=True)
+    best_model_path='models/gmms/gmms_INN.pt'
+    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'gmm')
 
-# Save results
-min_losses.to_csv('min_losses_gmm.csv', index=False)
+    # Save results
+    min_losses.to_csv('min_losses_gmm.csv', index=False)
 
