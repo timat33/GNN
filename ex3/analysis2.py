@@ -176,6 +176,30 @@ def check_generation_quality(x_synth, x_test, quality, labels_synth=None, labels
     plt.grid(True)
     plt.show()
 
+def check_marginal_vs_full_dists(x_synth, labels_synth, x_test, labels_test, bandwidth_start = 0.5, num_bandwidths = 5):
+    results = pd.DataFrame(columns=['Class', 'MMD2'])
+
+    # Get conditional performance
+    for label in torch.unique(labels_synth):
+        x_synth_class = x_synth[labels_synth == label]
+        x_test_class = x_test[labels_test == label]
+
+        mmd2_class = MMD2(x_synth_class, x_test_class, bandwidth_start, num_bandwidths)
+
+        results.loc[len(results)] = [label, mmd2_class]
+
+    # Get full performance
+    mmd2_full = MMD2(x_synth, x_test, bandwidth_start, num_bandwidths)
+    results.loc[len(results)] = ['Full', mmd2_full]
+
+    print(results)
+    return results
+
+
+
+        
+
+
 def run_conditional_analysis(best_path, best_params, dataset, noise = 0.1, seed = 11121, n_test = 100):
     if seed:
         torch.manual_seed(seed)
