@@ -486,10 +486,10 @@ if __name__ == '__main__':
 
     # Apply to moons dataset
     os.makedirs('ex3/models/moons', exist_ok=True)
-    # best_model_path=None #'models/moons/moons_INN.pt' # For safety
-    # min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
+    best_model_path=None #'models/moons/moons_INN.pt' # For safety
+    min_losses = init_and_train_from_grid(hparams_grid, fixed_params, best_model_path, 'moons')
 
-    # min_losses.to_csv('min_losses_moons.csv', index=False)
+    min_losses.to_csv('min_losses_moons.csv', index=False)
 
     # Apply to gmm dataset
     os.makedirs('ex3/models/gmms', exist_ok=True)

@@ -279,7 +279,7 @@ def run_analysis(good_path, bad_path, best_params, worst_params, dataset, noise 
 
 if __name__ == '__main__':
     # Hyperparam analysis
-    min_losses_df = pd.read_csv('min_losses_moons.csv')
+    min_losses_df = pd.read_csv('ex3/min_losses_moons.csv')
 
     # Tabular analysis: Which is best model
     best_path, worst_path, best_params, worst_params = find_best_model_from_tabular(min_losses_df)
