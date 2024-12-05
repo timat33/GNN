@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from train_model import RealNVP, get_standardised_moons, get_standardised_gmm
 # hparam analysis functions
 def get_path_from_params(n_train, hidden_size, blocks, lr):
-    return f'models/moons/moons_INN_ntrain{int(n_train)}_hiddensize{int(hidden_size)}_blocks{int(blocks)}_lr{str(lr).replace(".",",")}.pt'
+    return f'ex3/models/moons/moons_INN_ntrain{int(n_train)}_hiddensize{int(hidden_size)}_blocks{int(blocks)}_lr{str(lr).replace(".",",")}.pt'
 
 def find_best_model_from_tabular(min_losses_df):
     print(min_losses_df)
@@ -34,10 +34,10 @@ def find_best_model_from_tabular(min_losses_df):
 
     # Return path of best and worst models
 
-    good_path = get_path_from_params(best_params['n_train'], best_params['hidden_size'], best_params['blocks'], best_params['lr'])
+    best_path = get_path_from_params(best_params['n_train'], best_params['hidden_size'], best_params['blocks'], best_params['lr'])
     bad_path = get_path_from_params(worst_params['n_train'], worst_params['hidden_size'], worst_params['blocks'], worst_params['lr'])
 
-    return good_path, bad_path, best_params, worst_params
+    return best_path, bad_path, best_params, worst_params
     
 def plot_training_histories(path1, path2, model_names=None):
     """Compare training histories from two model checkpoints on single plot"""
@@ -245,14 +245,14 @@ def check_generation_quality(x_synth, x_test, quality, bandwidth_start = 0.5, nu
     plt.grid(True)
     plt.show()
 
-def run_analysis(good_path, bad_path, best_params, worst_params, dataset, noise = 0.1, seed = 11121, n_test = 100, test_batch_size = 32):
+def run_analysis(best_path, bad_path, best_params, worst_params, dataset, noise = 0.1, seed = 11121, n_test = 100, test_batch_size = 32):
     if seed:
         torch.manual_seed(seed)
         np.random.seed(seed)
     # Get models
     input_size = 2
     good_inn = RealNVP(input_size, int(best_params['hidden_size']), int(best_params['blocks']), 'cpu')
-    checkpoint = torch.load(good_path, weights_only=False)
+    checkpoint = torch.load(best_path, weights_only=False)
     good_inn.load_state_dict(checkpoint['model_state_dict'])
 
     bad_inn = RealNVP(input_size, int(worst_params['hidden_size']), int(worst_params['blocks']), 'cpu')
@@ -260,11 +260,10 @@ def run_analysis(good_path, bad_path, best_params, worst_params, dataset, noise 
     bad_inn.load_state_dict(checkpoint['model_state_dict'])
 
     # Get various datasets
-    best_params
     if dataset == 'moons':
         x_test = get_standardised_moons(int(best_params['n_train']), noise)
     elif dataset == 'gmm':
-        x_test = get_standardised_gmm(int(best_params['n_train']), noise)
+        x_test = get_standardised_gmm(int(best_params['n_train']), 1/10)
     z_test = good_inn.get_codes(x_test, test_batch_size) # Codes corresponding to test data
     x_reconstructed_test = good_inn.get_reconstructions(z_test, test_batch_size) # Reconstructions of test data
     x_synth_good = good_inn.sample(n_test, seed) # good synthetic data

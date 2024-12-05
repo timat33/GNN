@@ -10,10 +10,11 @@ from sklearn.mixture import GaussianMixture
 from sklearn.datasets import load_digits
 import matplotlib.pyplot as plt
 
+from analysis1 import find_best_model_from_tabular, plot_all_parameter_changes, plot_training_histories, run_analysis
 from train_model_conditional import RealNVP, get_standardised_moons, get_standardised_gmm
 # hparam analysis functions
 def get_path_from_params(n_train, hidden_size, blocks, lr, dataset = 'moons', conditional = False):
-    return f'models/{dataset}{"_conditional" if conditional else ""}/{dataset}_INN_ntrain{int(n_train)}_hiddensize{int(hidden_size)}_blocks{int(blocks)}_lr{str(lr).replace(".",",")}.pt'
+    return f'ex3/models/{dataset}{"_conditional" if conditional else ""}/{dataset}_INN_ntrain{int(n_train)}_hiddensize{int(hidden_size)}_blocks{int(blocks)}_lr{str(lr).replace(".",",")}.pt'
 
 def find_best_model_conditional(min_losses_df, dataset = 'moons', conditional = False):
     print(min_losses_df)
@@ -195,11 +196,6 @@ def check_marginal_vs_full_dists(x_synth, labels_synth, x_test, labels_test, ban
     print(results)
     return results
 
-
-
-        
-
-
 def run_conditional_analysis(best_path, best_params, dataset, noise = 0.1, seed = 11121, n_test = 100):
     if seed:
         torch.manual_seed(seed)
@@ -226,10 +222,30 @@ def run_conditional_analysis(best_path, best_params, dataset, noise = 0.1, seed 
     check_generation_quality(x_synth_good, x_test, quality = 'good', labels_synth = labels_synth, labels_test = labels_test)
 
 if __name__ == '__main__':
+    # Unconditional Stuff
     # Hyperparam analysis
-    min_losses_df = pd.read_csv('min_losses_moons.csv')
+    min_losses_df = pd.read_csv('ex3/min_losses_moons.csv')
 
     # Tabular analysis: Which is best model
+    best_path, worst_path, best_params, worst_params = find_best_model_from_tabular(min_losses_df)
+
+    # How do hparams change performance
+    plot_training_histories(best_path, worst_path, model_names=['Best Model', 'Worst Model'])
+    plot_all_parameter_changes(min_losses_df)
+
+    run_analysis(best_path, worst_path, best_params, worst_params, 'moons')
+
+    # Rerun analysis for gmm
+
+    # Tabular analysis: Which is best model
+    best_path, worst_path, best_params, worst_params = find_best_model_from_tabular(min_losses_df)
+
+    run_analysis(best_path, worst_path, best_params, worst_params, 'gmm')
+    
+    # Conditional stuff
+    # Find best model
+    min_losses_df = pd.read_csv('ex3/min_losses_moons.csv')
+
     best_path, best_params = find_best_model_conditional(min_losses_df, dataset = 'moons', conditional = True)
 
     run_conditional_analysis(best_path, best_params, 'moons')

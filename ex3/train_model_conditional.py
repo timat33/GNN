@@ -79,6 +79,17 @@ def get_standardised_gmm(n_samples, radius, conditional, device = 'cpu'):
     
     return x_standardised, labels
 
+def get_digits(device = 'cpu'):
+    # Load dataset
+    digits = load_digits()
+    x = digits.data
+    labels = digits.target
+
+    x = torch.from_numpy(x).float().to(device)
+    labels = torch.from_numpy(labels).float().to(device)
+
+    return x, labels
+
 # Normalising flow (INN) architecture and helper classes
 def get_rand_rotation_mat(n):
     '''
@@ -372,11 +383,13 @@ class RealNVP(nn.Module):
         return reconstructions, labels
 
 # Functions for training
-class NLLLoss(nn.Module):
-    def __init__(self, coupling_layers, data_dim):
+class NLL_and_reconstruction_loss(nn.Module):
+    def __init__(self, model: RealNVP, data_dim, k = 0):
         super().__init__()
-        self.coupling_layers = coupling_layers
+        self.model = model
+        self.coupling_layers = self.model.coupling_layers
         self.data_dim = data_dim
+        self.k = k
     
     def forward(self, intermediates, z, condition):
         # Component corresponding to transforming the data
@@ -401,10 +414,20 @@ class NLLLoss(nn.Module):
                 scale_coeff = self.coupling_layers[i].scaling(lower_half_with_conditions)
             scaling_sum = torch.log(scale_coeff).sum(dim=1)
             log_det_component += scaling_sum
+
+        loss = (transformed_component - log_det_component).mean() # NLL component
+
+        if self.k!=0:
+            # Get reconstruction loss
+            z_restricted = z.copy()
+            z_restricted[:, self.k:] = 0
+            x_hat = self.model.reverse(z, condition)
+            reconstruction_loss = ((x_hat - z)**2).sum(dim=1).mean()
+            loss += reconstruction_loss
         
-        return (transformed_component - log_det_component).mean()
+        return loss
     
-def train_epoch(model: RealNVP, train_loader, optimiser, loss_fn: NLLLoss, conditional: bool):
+def train_epoch(model: RealNVP, train_loader, optimiser, loss_fn: NLL_and_reconstruction_loss, conditional: bool):
     model.train()
     train_loss = 0.
 
@@ -545,7 +568,7 @@ def train_model(model, n_epoch, loss_fn, x_train, labels, conditional, lr, model
 
     return history
 
-def init_and_train(hparams, fixed_params, model_path, dataset: str):
+def init_and_train(hparams, fixed_params, model_path, dataset: str, k:int = 0):
     # Get data
     if dataset == 'moons':
         x_standardised, labels = get_standardised_moons(hparams.n_train, fixed_params.conditional, fixed_params.noise, fixed_params.device)
@@ -553,6 +576,8 @@ def init_and_train(hparams, fixed_params, model_path, dataset: str):
         x_standardised, labels = get_standardised_gmm(hparams.n_train, fixed_params.radius, fixed_params.conditional, fixed_params.device)
         if fixed_params.conditional and fixed_params.positive_labels is not None:
             labels = relabel_to_binary(labels, positive_labels=fixed_params.positive_labels)
+    elif dataset == 'digits':
+        x_standardised, labels = get_digits() # Not actually standardised, but called so for consistency
 
     if not fixed_params.conditional:
         labels = None
@@ -568,12 +593,12 @@ def init_and_train(hparams, fixed_params, model_path, dataset: str):
                   fixed_params.device).to(fixed_params.device)
 
     # Train model
-    loss_fn = NLLLoss(inn.coupling_layers, fixed_params.input_size)
+    loss_fn = NLL_and_reconstruction_loss(inn, fixed_params.input_size, k)
     history = train_model(inn, hparams.n_epoch, loss_fn, x_standardised, labels, fixed_params.conditional, hparams.lr, model_path=model_path, device = fixed_params.device, batch_size=fixed_params.batch_size)
 
     return history
 
-def init_and_train_from_grid(hparams_grid, fixed_params, model_path_template, dataset):
+def init_and_train_from_grid(hparams_grid, fixed_params, model_path_template, dataset, k:int = 0):
     '''
     Take grid of hyperparams and train models for all combinations
     '''
@@ -592,7 +617,7 @@ def init_and_train_from_grid(hparams_grid, fixed_params, model_path_template, da
                                        f'_ntrain{n_train}_hiddensize{hidden_size}_blocks{blocks}_lr{str(lr).replace('.',',')}.pt')
         print(f'Training model {model_path}')
 
-        history = init_and_train(hparams, fixed_params, model_path, dataset)
+        history = init_and_train(hparams, fixed_params, model_path, dataset, k)
 
         # Get minimum validation loss
         min_val_loss = min(history['val_loss'])
